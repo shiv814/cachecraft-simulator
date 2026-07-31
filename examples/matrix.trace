@@ -1,0 +1,11 @@
+# Small stride-heavy access pattern useful for comparing policies
+R 0x0000 8
+R 0x0040 8
+R 0x0080 8
+R 0x00c0 8
+R 0x0000 8
+W 0x0100 8
+R 0x0040 8
+W 0x0140 8
+R 0x0080 8
+R 0x0180 8
