@@ -1,146 +1,133 @@
-# CacheCraft Simulator
+<div align="center">
+  <img src="assets/cachecraft-hero.svg" alt="CacheCraft cache architecture experiment toolkit" width="100%" />
 
-CacheCraft is a C++17 cache-architecture simulator for exploring how capacity, block size, associativity, replacement policy, and write strategy affect memory-system behaviour. Version 2 expands the original LRU-only demonstration into a small research and teaching tool with typed traces, miss classification, policy comparison, dirty-line handling, hierarchy support, JSON output, and inspectable cache state.
+  [![build](https://github.com/shiv814/cachecraft-simulator/actions/workflows/build.yml/badge.svg)](https://github.com/shiv814/cachecraft-simulator/actions/workflows/build.yml)
+  ![C++](https://img.shields.io/badge/C%2B%2B-17-00599C?logo=cplusplus&logoColor=white)
+  ![CMake](https://img.shields.io/badge/CMake-cross--platform-064F8C?logo=cmake&logoColor=white)
+  ![Matrix](https://img.shields.io/badge/CI-6%20OS%2Fbuild%20configs-16a34a)
 
-## Simulation features
+  **A C++17 cache-architecture simulator and experiment toolkit for studying locality, replacement/write policy, miss behavior, AMAT, memory traffic, reuse distance, and configuration trade-offs.**
+</div>
 
-### Configurable organization
+---
 
-- arbitrary capacity, power-of-two block size, and associativity
-- direct-mapped through fully associative organizations
-- validated geometry and latency inputs
-- deterministic random-policy experiments through an explicit seed
+## From simulator to experiment platform
 
-### Replacement policies
+CacheCraft began as a small set-associative cache simulator. Version 3 turns it into a more complete **computer-architecture experimentation environment**: the original cache core remains, while new modules characterize workloads, generate deterministic traces, analyze reuse distance, sweep many cache configurations, and identify Pareto-efficient designs.
 
-- least recently used (`lru`)
-- first in, first out (`fifo`)
-- deterministic pseudo-random (`random`)
+The goal is not to imitate a cycle-accurate commercial simulator. The goal is to make cache behavior **observable, reproducible, and explainable**.
 
-### Write behaviour
+## Capability map
 
-- write-back or write-through
-- write-allocate or no-write-allocate
-- dirty-bit tracking
-- writeback, memory-read, memory-write, and bytes-fetched accounting
+| Area | Capabilities |
+|---|---|
+| Organization | arbitrary capacity, power-of-two blocks, direct-mapped through fully associative |
+| Replacement | LRU, FIFO and deterministic random |
+| Writes | write-back/write-through and write-allocate/no-write-allocate |
+| Accesses | read, write and instruction traces; multi-block records |
+| Misses | compulsory, conflict and capacity classification using a shadow fully-associative cache |
+| Traffic | dirty lines, writebacks, memory reads/writes and bytes fetched |
+| Timing | hit latency, miss penalty and AMAT |
+| Hierarchy | two-level L1/L2 simulation |
+| Workloads | trace parser plus sequential, strided and seeded hot-set generators |
+| Analysis | unique blocks, access mix, sequential fraction, average stride and reuse-distance distribution |
+| Experiments | configuration sweeps, CSV/JSON output and capacity/miss/traffic Pareto frontier |
+| Verification | Debug + Release builds on Linux, Windows and macOS |
 
-### 3C miss model
+## Architecture
 
-A fully associative shadow cache with the same line count classifies every miss as:
-
-- **compulsory**: the block has never been referenced
-- **conflict**: the block would still fit in a fully associative cache but was displaced by set mapping
-- **capacity**: the working set exceeded total cache capacity
-
-### Trace support
-
-Accepted forms include:
-
-```text
-0x1000
-R 0x1000
-W,0x2000,8
-I 4096 4
+```mermaid
+flowchart LR
+  REAL[Trace file] --> PARSER[Trace parser]
+  SYN[Synthetic workloads] --> WORK[Workload analysis]
+  PARSER --> WORK
+  PARSER --> CORE[Cache core]
+  SYN --> CORE
+  CORE --> STATS[Stats / 3C misses / traffic]
+  WORK --> SWEEP[Experiment sweep]
+  STATS --> SWEEP
+  SWEEP --> PARETO[Pareto frontier]
+  SWEEP --> OUT[CSV / JSON]
+  PARSER --> REUSE[Reuse distance]
 ```
 
-`R`, `W`, and `I` represent data reads, data writes, and instruction fetches. An optional size expands accesses that cross cache-block boundaries. Blank lines, comments, inline comments, decimal addresses, and hexadecimal addresses are accepted.
-
-### Analysis output
-
-- access counts by type
-- hits, misses, evictions, and hit/miss rates
-- compulsory, conflict, and capacity misses
-- memory reads, memory writes, writebacks, and bytes fetched
-- average memory access time from configurable hit latency and miss penalty
-- JSON output for automation
-- CSV-style comparison across LRU, FIFO, and random policies
-- per-set line dumps including valid, dirty, tag, last-used, and insertion timestamps
-
-## Build
+## Quick start
 
 ```bash
-cmake -S . -B build
-cmake --build build
-ctest --test-dir build --output-on-failure
+git clone https://github.com/shiv814/cachecraft-simulator.git
+cd cachecraft-simulator
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build --config Release
+ctest --test-dir build -C Release --output-on-failure
 ```
 
-## Run
-
-The original positional interface still works:
+Run the original CLI against `examples/sample.trace`, or run the v3 experiment program:
 
 ```bash
-./build/cachecraft_cli 32768 64 8 examples/sample.trace
+./build/cachecraft_experiments > experiments.csv
 ```
 
-The expanded interface is better for experiments:
+It creates a deterministic 10,000-access hot-set workload, summarizes its locality, sweeps multiple capacities/associativities, emits experiment data, and reports how many measured configurations remain on the Pareto frontier.
 
-```bash
-./build/cachecraft_cli \
-  --trace examples/matrix.trace \
-  --capacity 32768 \
-  --block 64 \
-  --ways 8 \
-  --policy lru \
-  --write-policy write-back \
-  --allocation write-allocate \
-  --hit-latency 1 \
-  --miss-penalty 80
-```
+## Workload characterization
 
-Inspect every access and the final state of set zero:
+`WorkloadSummary` measures record count, expanded block accesses, read/write/instruction mix, unique blocks, sequential transitions and average absolute stride. This makes a trace explainable before interpreting cache results.
 
-```bash
-./build/cachecraft_cli --trace examples/sample.trace --capacity 256 --block 16 --ways 2 --verbose --dump-set 0
-```
+## Reuse-distance analysis
 
-Emit machine-readable JSON:
+Reuse distance counts distinct blocks touched between two references to the same block. CacheCraft reports cold fraction plus average, median, p95 and maximum observed reuse distance. This gives a configuration-independent view of temporal locality.
 
-```bash
-./build/cachecraft_cli --trace examples/sample.trace --json
-```
-
-Compare all replacement policies with identical geometry and trace:
-
-```bash
-./build/cachecraft_cli --trace examples/matrix.trace --capacity 256 --block 16 --ways 2 --compare
-```
-
-## Library example
+## Controlled sweeps
 
 ```cpp
-#include "cache.hpp"
-
-cachecraft::CacheConfig config;
-config.capacity_bytes = 32 * 1024;
-config.block_bytes = 64;
-config.ways = 8;
-config.replacement = cachecraft::ReplacementPolicy::LRU;
-config.write_policy = cachecraft::WritePolicy::WriteBack;
-
-cachecraft::Cache cache(config);
-auto result = cache.access(0x1000, cachecraft::AccessType::Write);
-const auto& stats = cache.statistics();
+std::vector<CacheConfig> configs = /* capacities / ways / policies */;
+auto results = cachecraft::sweep(trace, configs);
+auto frontier = cachecraft::pareto_frontier(results);
+std::cout << cachecraft::experiments_to_csv(results);
 ```
 
-`TwoLevelHierarchy` is also available for L1/L2 experiments. L2 is accessed only when L1 misses, and both levels retain independent statistics.
+The Pareto comparison considers **capacity, miss rate, and memory transactions/access**. It does not hide engineering trade-offs behind a made-up weighted score.
 
-## Project structure
+## Repository map
 
 ```text
 include/
-├── cache.hpp   # cache model, policies, results, hierarchy
-└── trace.hpp   # typed trace records and parser API
+  cache.hpp       cache/hierarchy public API
+  trace.hpp       trace records and parser
+  analysis.hpp    workload + experiment API
+  reuse.hpp       reuse-distance API
+  synthetic.hpp   deterministic workload generators
 src/
-├── cache.cpp   # policy engine, 3C classifier, hierarchy
-├── trace.cpp   # robust trace parsing
-└── main.cpp    # experiment-oriented command-line interface
-tests/
-└── test_cache.cpp
-examples/
-├── sample.trace
-└── matrix.trace
+  cache.cpp       cache behavior
+  trace.cpp       input parsing
+  main.cpp        interactive/CLI simulator
+  analysis.cpp    experiment execution + Pareto selection
+  reuse.cpp       locality analysis
+  synthetic.cpp   synthetic workloads
+  experiment.cpp  reproducible v3 experiment executable
+tests/            cache correctness + v3 analysis tests
+docs/             architecture, experiment methodology and trade-offs
 ```
 
-## Engineering focus
+## Engineering details worth discussing
 
-CacheCraft is intentionally dependency-free and uses deterministic tests. The implementation emphasizes explicit domain types, invariant validation, policy separation, testable state transitions, useful measurement, and compatibility with both interactive learning and scripted experiments.
+- a fully-associative shadow cache separates conflict from capacity misses
+- seeded random replacement/workloads preserve reproducibility
+- write behavior tracks both cache state and backing-memory traffic
+- experiment code reuses the public cache API instead of duplicating simulator logic
+- multi-dimensional Pareto selection makes hardware-cost/performance trade-offs explicit
+- cross-platform CI tests both Debug and Release to catch configuration-sensitive problems
+
+## Documentation
+
+- [Architecture](docs/ARCHITECTURE.md)
+- [Experiment methodology](docs/EXPERIMENTS.md)
+- [Engineering notes / model scope](docs/ENGINEERING.md)
+- [Contributing](CONTRIBUTING.md)
+
+## Scope
+
+CacheCraft is an educational/portfolio memory-system model. It is not cycle-accurate and does not model coherence, prefetching, out-of-order execution, DRAM timing, physical area or power unless explicitly added later.
+
+## License
+MIT © Shivam Patel
